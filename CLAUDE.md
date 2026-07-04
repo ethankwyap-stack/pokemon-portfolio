@@ -2,6 +2,8 @@
 
 React 18 + TS + Vite 6 + Tailwind v4. Tracks owned cards with TCGplayer market prices via the free pokemontcg.io API (keyless; optional `VITE_POKEMONTCG_API_KEY` in `.env`).
 
+Backed up to github.com/ethankwyap-stack/pokemon-portfolio (private) — LaunchAgent `com.ethanyap.pokemon-portfolio-backup` runs `scripts/backup.sh` nightly at 21:00 (auto commit + push; log at /tmp/pokemon-portfolio-backup.log).
+
 ## Serving — always-on localhost, no cloud deploy
 - LaunchAgent `com.ethanyap.pokemon-portfolio` (`~/Library/LaunchAgents`) runs `server.mjs` (dep-free static server for `dist/`) at **http://localhost:4321**.
 - **After any code change, run `npm run build`** — :4321 serves `dist/`, so changes are invisible until rebuilt.
