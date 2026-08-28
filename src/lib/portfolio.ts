@@ -36,17 +36,30 @@ export function toOwnedCard(card: ApiCard, variant?: string): OwnedCard {
 
 /** Refresh prices (and variant lists) for the whole collection from the API.
  *  Returns a new array; cards the API didn't return keep their stale price. */
-export async function refreshPrices(collection: OwnedCard[]): Promise<OwnedCard[]> {
-  if (collection.length === 0) return collection
+/** Refresh prices (and variant lists) for the whole collection from the API.
+ *  Cards the API didn't return keep their stale price.
+ *
+ *  `renames` reports entries whose variant had to change because the API no
+ *  longer lists the old one. Sell-tab state is keyed by `cardId|variant`, so the
+ *  caller MUST apply these renames or a card silently loses its for-sale flag
+ *  and its logged offers on the next page load. */
+export async function refreshPrices(
+  collection: OwnedCard[],
+): Promise<{ collection: OwnedCard[]; renames: Array<[string, string]> }> {
+  if (collection.length === 0) return { collection, renames: [] }
   const ids = [...new Set(collection.map((c) => c.cardId))]
   const fresh = await getCardsByIds(ids)
   const byId = new Map(fresh.map((c) => [c.id, c]))
-  return collection.map((owned) => {
+  const renames: Array<[string, string]> = []
+  const next = collection.map((owned) => {
     const card = byId.get(owned.cardId)
     if (!card) return owned
     const variants = variantOptions(card)
     // Keep the user's chosen variant if it still exists, else fall back.
     const variant = variants.includes(owned.variant) ? owned.variant : pickVariant(card)
+    if (variant !== owned.variant) {
+      renames.push([`${owned.cardId}|${owned.variant}`, `${owned.cardId}|${variant}`])
+    }
     return {
       ...owned,
       variant,
@@ -56,6 +69,7 @@ export async function refreshPrices(collection: OwnedCard[]): Promise<OwnedCard[
       priceUpdatedAt: card.tcgplayer?.updatedAt ?? owned.priceUpdatedAt,
     }
   })
+  return { collection: next, renames }
 }
 
 export function todayKey(): string {

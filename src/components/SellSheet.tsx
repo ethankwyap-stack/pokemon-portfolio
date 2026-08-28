@@ -27,6 +27,18 @@ interface Props {
   onRemoveOffer: (card: OwnedCard, offerId: string) => void
 }
 
+/** Filter by card name, set name, or collector number. */
+function matches(cards: OwnedCard[], query: string): OwnedCard[] {
+  const q = query.trim().toLowerCase()
+  if (!q) return cards
+  return cards.filter(
+    (c) =>
+      c.name.toLowerCase().includes(q) ||
+      c.setName.toLowerCase().includes(q) ||
+      c.number.toLowerCase().includes(q),
+  )
+}
+
 const toneText: Record<string, string> = {
   good: 'text-neon',
   ok: 'text-ink',
@@ -44,22 +56,25 @@ export default function SellSheet({
 }: Props) {
   const [picking, setPicking] = useState(false)
   const [query, setQuery] = useState('')
+  const [pileQuery, setPileQuery] = useState('')
 
   const pile = useMemo(() => forSaleCards(collection, sell), [collection, sell])
+  // Totals always cover the WHOLE pile, never just the search hits — a filtered
+  // total would quietly misreport what the bag is worth.
   const totals = useMemo(() => pileTotals(pile), [pile])
   const offersTotal = useMemo(() => bestOffersTotal(pile, sell), [pile, sell])
 
+  const shownPile = useMemo(() => matches(pile, pileQuery), [pile, pileQuery])
+
+  // Checked cards stay pinned to the top of the picker even when they don't
+  // match the search, so filtering can never look like it un-picked something.
   const pickList = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    const base = [...collection].sort((a, b) => lineMarket(b) - lineMarket(a))
-    if (!q) return base
-    return base.filter(
-      (c) =>
-        c.name.toLowerCase().includes(q) ||
-        c.setName.toLowerCase().includes(q) ||
-        c.number.toLowerCase().includes(q),
-    )
-  }, [collection, query])
+    const byValue = [...collection].sort((a, b) => lineMarket(b) - lineMarket(a))
+    const hits = matches(byValue, query)
+    const hitKeys = new Set(hits.map(entryKey))
+    const pinned = byValue.filter((c) => sellFor(sell, c).forSale && !hitKeys.has(entryKey(c)))
+    return { pinned, hits }
+  }, [collection, query, sell])
 
   if (collection.length === 0) {
     return (
@@ -113,32 +128,35 @@ export default function SellSheet({
             className="mb-3 w-full rounded-lg border border-border bg-surface-2 px-3 py-2 text-base text-ink outline-none focus:border-neon"
           />
           <div className="flex max-h-[50vh] flex-col gap-1 overflow-y-auto">
-            {pickList.map((card) => {
-              const on = sellFor(sell, card).forSale
-              return (
-                <label
-                  key={entryKey(card)}
-                  className="flex cursor-pointer items-center gap-3 rounded-lg border border-border bg-surface-2 p-2"
-                >
-                  <input
-                    type="checkbox"
-                    checked={on}
-                    onChange={(e) => onToggleForSale(card, e.target.checked)}
-                    className="h-5 w-5 shrink-0 accent-[#00e0a4]"
-                  />
-                  <img src={card.imageSmall} alt="" className="h-12 w-9 shrink-0 rounded" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm text-ink">{card.name}</span>
-                    <span className="block truncate text-xs text-muted">
-                      {card.setName} · #{card.number} · x{card.qty}
-                    </span>
-                  </span>
-                  <span className="shrink-0 text-sm font-semibold tabular-nums text-neon">
-                    {usd(lineMarket(card))}
-                  </span>
-                </label>
-              )
-            })}
+            {pickList.pinned.length > 0 && (
+              <p className="px-1 pt-1 text-xs text-muted">
+                Already picked ({pickList.pinned.length}) — kept here so the search can't hide them
+              </p>
+            )}
+            {pickList.pinned.map((card) => (
+              <PickRow
+                key={entryKey(card)}
+                card={card}
+                checked
+                onToggleForSale={onToggleForSale}
+              />
+            ))}
+
+            {pickList.pinned.length > 0 && pickList.hits.length > 0 && (
+              <p className="px-1 pt-2 text-xs text-muted">Everything else</p>
+            )}
+            {pickList.hits.map((card) => (
+              <PickRow
+                key={entryKey(card)}
+                card={card}
+                checked={sellFor(sell, card).forSale}
+                onToggleForSale={onToggleForSale}
+              />
+            ))}
+
+            {pickList.hits.length === 0 && pickList.pinned.length === 0 && (
+              <p className="p-4 text-center text-sm text-muted">No cards match “{query}”.</p>
+            )}
           </div>
         </div>
       )}
@@ -149,7 +167,31 @@ export default function SellSheet({
         </p>
       ) : (
         <div className="flex flex-col gap-3">
-          {pile.map((card) => (
+          <div className="flex items-center gap-2">
+            <input
+              value={pileQuery}
+              onChange={(e) => setPileQuery(e.target.value)}
+              placeholder={`Search your ${pile.length} cards…`}
+              className="min-w-0 flex-1 rounded-lg border border-border bg-surface-2 px-3 py-2 text-base text-ink outline-none focus:border-neon"
+            />
+            {pileQuery && (
+              <Button variant="subtle" onClick={() => setPileQuery('')}>
+                Clear
+              </Button>
+            )}
+          </div>
+          {pileQuery && (
+            <p className="text-xs text-muted">
+              Showing {shownPile.length} of {pile.length}. Searching only hides rows — nothing is
+              un-picked, and the totals above still cover all {pile.length}.
+            </p>
+          )}
+          {shownPile.length === 0 && (
+            <p className="rounded-2xl border border-dashed border-border p-6 text-center text-muted">
+              None of your picked cards match “{pileQuery}”.
+            </p>
+          )}
+          {shownPile.map((card) => (
             <SellRow
               key={entryKey(card)}
               card={card}
@@ -162,6 +204,41 @@ export default function SellSheet({
         </div>
       )}
     </div>
+  )
+}
+
+function PickRow({
+  card,
+  checked,
+  onToggleForSale,
+}: {
+  card: OwnedCard
+  checked: boolean
+  onToggleForSale: Props['onToggleForSale']
+}) {
+  return (
+    <label
+      className={`flex cursor-pointer items-center gap-3 rounded-lg border p-2 ${
+        checked ? 'border-neon/50 bg-neon/5' : 'border-border bg-surface-2'
+      }`}
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onToggleForSale(card, e.target.checked)}
+        className="h-5 w-5 shrink-0 accent-[#00e0a4]"
+      />
+      <img src={card.imageSmall} alt="" className="h-12 w-9 shrink-0 rounded" />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm text-ink">{card.name}</span>
+        <span className="block truncate text-xs text-muted">
+          {card.setName} · #{card.number} · x{card.qty}
+        </span>
+      </span>
+      <span className="shrink-0 text-sm font-semibold tabular-nums text-neon">
+        {usd(lineMarket(card))}
+      </span>
+    </label>
   )
 }
 
@@ -240,7 +317,23 @@ function SellRow({
         <Button variant="subtle" className="flex-1" onClick={() => setOpen((o) => !o)}>
           {open ? 'Hide offers' : `Offers (${info.offers.length})`}
         </Button>
-        <Button variant="danger" onClick={() => onToggleForSale(card, false)}>
+        <Button
+          variant="danger"
+          onClick={() => {
+            // Offers are typed in by hand at a table; never drop them on one tap.
+            if (
+              info.offers.length > 0 &&
+              !confirm(
+                `Take ${card.name} off the sell list? Its ${info.offers.length} logged offer${
+                  info.offers.length === 1 ? '' : 's'
+                } stay saved if you put it back.`,
+              )
+            ) {
+              return
+            }
+            onToggleForSale(card, false)
+          }}
+        >
           Not selling
         </Button>
       </div>

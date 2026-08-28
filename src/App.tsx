@@ -11,7 +11,8 @@ import {
   saveHistory,
   saveSell,
 } from './lib/storage'
-import { cloudEnabled, cloudLoad, cloudSave } from './lib/cloud'
+import { ConflictError, cloudEnabled, cloudLoad, cloudSave } from './lib/cloud'
+import { applyRenames, mergeData } from './lib/merge'
 import { buildOfflineSheet, downloadFile } from './lib/offline'
 import { recordSnapshot, refreshPrices, toOwnedCard, totalValue } from './lib/portfolio'
 import { emptySell, entryKey, newOffer } from './lib/sell'
@@ -51,6 +52,9 @@ export default function App() {
   // opened phone tab can never push its empty state over the real collection.
   const syncReady = useRef(false)
   const saveTimer = useRef<number | undefined>(undefined)
+  // The `updatedAt` this device last saw. The server rejects a write whose base
+  // does not match, which is what stops one device clobbering the other.
+  const baseUpdatedAt = useRef<string | null>(null)
 
   // Local persistence — always on, cloud or not. localStorage stays a mirror.
   useEffect(() => saveCollection(collection), [collection])
@@ -72,12 +76,14 @@ export default function App() {
           if (!remote) {
             // First run against an empty cloud: seed it from this device.
             if (base.length > 0) {
-              await cloudSave(bundle())
+              const saved = await cloudSave(bundle())
+              baseUpdatedAt.current = saved.updatedAt
               setCloudStatus(`Cloud seeded with ${base.length} cards from this device.`)
             } else {
               setCloudStatus('Cloud is empty, and so is this device.')
             }
           } else if (remote.collection.length === 0 && base.length > 0) {
+            baseUpdatedAt.current = remote.updatedAt
             // Cloud is blank but this device has cards — trust the cards.
             setCloudStatus(
               `Cloud was empty but this device has ${base.length} cards. Nothing overwritten — use “Push this device → cloud” if that is right.`,
@@ -91,6 +97,7 @@ export default function App() {
             }
             restore(remote, { allowEmpty: true })
             base = remote.collection
+            baseUpdatedAt.current = remote.updatedAt
             setCollection(remote.collection)
             setHistory(remote.history ?? [])
             setSell(remote.sell ?? {})
@@ -108,8 +115,11 @@ export default function App() {
       if (base.length === 0) return
       setRefreshing(true)
       try {
-        const fresh = await refreshPrices(base)
+        const { collection: fresh, renames } = await refreshPrices(base)
         setCollection(fresh)
+        // A variant that changed under us would otherwise orphan that card's
+        // for-sale flag and its offers, which reads as "it unselected itself".
+        if (renames.length > 0) setSell((s) => applyRenames(s, renames))
         setHistory((h) => recordSnapshot(h, totalValue(fresh)))
       } catch {
         /* offline — keep stale prices */
@@ -121,17 +131,77 @@ export default function App() {
     void boot()
   }, [])
 
-  // Debounced push of any change to the cloud.
+  // Debounced push of any change to the cloud. On a conflict (the other device
+  // saved first) the two versions are merged additively and the write retried,
+  // so neither device's picks or offers are dropped.
   useEffect(() => {
     if (!cloudEnabled() || !syncReady.current) return
     window.clearTimeout(saveTimer.current)
-    saveTimer.current = window.setTimeout(() => {
-      cloudSave({ version: 2, collection, history, sell, updatedAt: new Date().toISOString() })
-        .then(() => setCloudStatus(`Saved to cloud ${new Date().toLocaleTimeString('en-US')}.`))
-        .catch((err) => setCloudStatus(`Not saved: ${(err as Error).message}`))
+    saveTimer.current = window.setTimeout(async () => {
+      const mine: AppData = {
+        version: 2,
+        collection,
+        history,
+        sell,
+        updatedAt: new Date().toISOString(),
+      }
+      try {
+        const saved = await cloudSave(mine, { baseUpdatedAt: baseUpdatedAt.current })
+        baseUpdatedAt.current = saved.updatedAt
+        setCloudStatus(`Saved to cloud ${new Date().toLocaleTimeString('en-US')}.`)
+      } catch (err) {
+        if (!(err instanceof ConflictError)) {
+          setCloudStatus(`Not saved: ${(err as Error).message}`)
+          return
+        }
+        try {
+          const merged = mergeData(mine, err.stored)
+          const saved = await cloudSave(merged, { baseUpdatedAt: err.stored.updatedAt })
+          baseUpdatedAt.current = saved.updatedAt
+          setCollection(merged.collection)
+          setHistory(merged.history)
+          setSell(merged.sell)
+          setCloudStatus(`Merged this device with the other one at ${new Date().toLocaleTimeString('en-US')}.`)
+        } catch (err2) {
+          setCloudStatus(`Not saved: ${(err2 as Error).message}. Your data is safe on this device.`)
+        }
+      }
     }, 800)
     return () => window.clearTimeout(saveTimer.current)
   }, [collection, history, sell])
+
+  // Pull fresh data when the tab comes back into view, so switching between the
+  // phone and the Mac shows what the other one just did.
+  useEffect(() => {
+    if (!cloudEnabled()) return
+    function onFocus() {
+      if (!syncReady.current || document.hidden) return
+      cloudLoad()
+        .then((remote) => {
+          if (!remote || remote.updatedAt === baseUpdatedAt.current) return
+          setCollection((c) => {
+            const merged = mergeData(
+              { version: 2, collection: c, history, sell, updatedAt: '' },
+              remote,
+            )
+            setHistory(merged.history)
+            setSell(merged.sell)
+            return merged.collection
+          })
+          baseUpdatedAt.current = remote.updatedAt
+          setCloudStatus(`Updated from the other device at ${new Date().toLocaleTimeString('en-US')}.`)
+        })
+        .catch(() => {
+          /* offline — the local copy stands */
+        })
+    }
+    document.addEventListener('visibilitychange', onFocus)
+    window.addEventListener('focus', onFocus)
+    return () => {
+      document.removeEventListener('visibilitychange', onFocus)
+      window.removeEventListener('focus', onFocus)
+    }
+  }, [history, sell])
 
   function addCard(card: ApiCard) {
     setCollection((prev) => {
@@ -233,27 +303,49 @@ export default function App() {
     })
   }, [])
 
+  /** Deliberate "make the cloud match this device" — overrides both guards, but
+   *  asks first when that would clear a stored collection. */
   async function pushToCloud() {
-    await cloudSave(
+    if (collection.length === 0) {
+      const remote = await cloudLoad().catch(() => null)
+      const stored = remote?.collection.length ?? 0
+      if (stored > 0 && !confirm(`This device has no cards. Really replace the ${stored} cards stored in the cloud?`)) {
+        throw new Error('cancelled')
+      }
+    }
+    const saved = await cloudSave(
       { version: 2, collection, history, sell, updatedAt: new Date().toISOString() },
-      { force: collection.length === 0 },
+      { force: true },
     )
+    baseUpdatedAt.current = saved.updatedAt
     setCloudStatus(`Pushed ${collection.length} cards to the cloud.`)
   }
 
   async function pullFromCloud() {
     const remote = await cloudLoad()
     if (!remote) throw new Error('nothing stored in the cloud yet')
+    baseUpdatedAt.current = remote.updatedAt
     setCollection(remote.collection)
     setHistory(remote.history ?? [])
     setSell(remote.sell ?? {})
     setCloudStatus(`Pulled ${remote.collection.length} cards from the cloud.`)
   }
 
-  function applyRestore(data: AppData) {
+  /** Restoring a backup means "this file is the truth", so it overwrites the
+   *  cloud rather than merging with it. */
+  async function applyRestore(data: AppData) {
     setCollection(data.collection)
     setHistory(data.history ?? [])
     setSell(data.sell ?? {})
+    if (cloudEnabled()) {
+      try {
+        const saved = await cloudSave({ ...data, updatedAt: new Date().toISOString() }, { force: true })
+        baseUpdatedAt.current = saved.updatedAt
+        setCloudStatus(`Restored ${data.collection.length} cards and pushed them to the cloud.`)
+      } catch (err) {
+        setCloudStatus(`Restored on this device, but the cloud push failed: ${(err as Error).message}`)
+      }
+    }
   }
 
   async function downloadOffline() {

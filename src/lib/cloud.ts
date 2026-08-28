@@ -34,8 +34,24 @@ export async function cloudLoad(): Promise<AppData | null> {
   return data && Array.isArray(data.collection) ? data : null
 }
 
-/** Write the bundle to the cloud. `force` skips the server's empty-write guard. */
-export async function cloudSave(data: AppData, { force = false } = {}): Promise<void> {
+/** Raised when the cloud copy moved on since this device last read it. */
+export class ConflictError extends Error {
+  stored: AppData
+  constructor(stored: AppData) {
+    super('The cloud copy changed since this device last read it')
+    this.name = 'ConflictError'
+    this.stored = stored
+  }
+}
+
+/** Write the bundle to the cloud.
+ *  `baseUpdatedAt` is the `updatedAt` this device last saw; the server rejects
+ *  the write with a ConflictError when the stored copy has moved past it.
+ *  `force` skips both the empty-write and the conflict guard. */
+export async function cloudSave(
+  data: AppData,
+  { force = false, baseUpdatedAt }: { force?: boolean; baseUpdatedAt?: string | null } = {},
+): Promise<AppData> {
   const k = readKey()
   if (!k) throw new Error('No access key in the URL')
   const res = await fetch(
@@ -43,8 +59,18 @@ export async function cloudSave(data: AppData, { force = false } = {}): Promise<
     {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...data, updatedAt: new Date().toISOString() }),
+      body: JSON.stringify({
+        ...data,
+        baseUpdatedAt: baseUpdatedAt ?? undefined,
+        updatedAt: new Date().toISOString(),
+      }),
     },
   )
+  if (res.status === 409) {
+    const payload = await res.json().catch(() => null)
+    if (payload?.error === 'conflict' && payload.stored) throw new ConflictError(payload.stored)
+    throw new Error(payload?.error || 'Cloud refused the write')
+  }
   if (!res.ok) throw new Error((await res.text()) || `Cloud save failed (${res.status})`)
+  return (await res.json()) as AppData
 }

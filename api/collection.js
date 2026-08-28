@@ -109,6 +109,21 @@ export default async function handler(req, res) {
         return
       }
 
+      // Guard 1b: reject a write from a device that has not seen the current
+      // stored copy. Without this, a Mac tab left open all morning silently
+      // overwrites everything the phone did at the show.
+      if (existing?.updatedAt && !force) {
+        const base = incoming.baseUpdatedAt
+        if (base !== existing.updatedAt) {
+          res.status(409).json({
+            error: 'conflict',
+            reason: 'The cloud copy changed since this device last read it.',
+            stored: existing,
+          })
+          return
+        }
+      }
+
       // Guard 2: keep one dated backup of the copy we are about to replace.
       if (existing) {
         const day = new Date().toISOString().slice(0, 10)
@@ -125,6 +140,7 @@ export default async function handler(req, res) {
       }
 
       const payload = { ...incoming, version: 2, updatedAt: new Date().toISOString() }
+      delete payload.baseUpdatedAt
       const before = await findLatest()
       await put(`${PREFIX}.json`, JSON.stringify(payload), ACCESS)
 
