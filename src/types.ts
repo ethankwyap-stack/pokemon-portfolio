@@ -78,3 +78,34 @@ export interface HistoryPoint {
   date: string // YYYY-MM-DD
   totalValue: number
 }
+
+/** A cash offer a vendor made at a show. Logged from the Sell tab so offers can
+ *  be compared before committing — the "shop it around" rule. */
+export interface Offer {
+  id: string
+  /** Vendor / table name, free text. */
+  vendor: string
+  /** What they offered, in dollars, for this card at the logged qty. */
+  amount: number
+  note?: string
+  at: string // ISO timestamp
+}
+
+/** Everything the Sell tab tracks for one owned entry. Kept in a side map keyed
+ *  by `cardId|variant` rather than on OwnedCard, so a collection restored from
+ *  an older backup still loads cleanly. */
+export interface SellInfo {
+  forSale: boolean
+  /** Optional manual floor; when unset the ladder percentages are used. */
+  askPrice?: number | null
+  offers: Offer[]
+}
+
+/** The whole persisted app state — one object, one cloud file, one backup file. */
+export interface AppData {
+  version: 2
+  collection: OwnedCard[]
+  history: HistoryPoint[]
+  sell: Record<string, SellInfo>
+  updatedAt: string
+}

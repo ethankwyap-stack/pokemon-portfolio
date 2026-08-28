@@ -1,12 +1,13 @@
 // localStorage persistence under the `poke.` namespace.
 // All reads/writes are try/catch guarded with graceful fallback.
 
-import type { OwnedCard, HistoryPoint, ApiSet } from '../types'
+import type { OwnedCard, HistoryPoint, ApiSet, SellInfo, AppData } from '../types'
 
 const KEYS = {
   collection: 'poke.collection',
   history: 'poke.history',
   setsCache: 'poke.setsCache',
+  sell: 'poke.sell',
 } as const
 
 function load<T>(key: string, fallback: T): T {
@@ -55,4 +56,33 @@ export function loadSetsCache(): ApiSet[] | null {
 }
 export function saveSetsCache(sets: ApiSet[]): void {
   save(KEYS.setsCache, { fetchedAt: new Date().toISOString(), sets })
+}
+
+export function loadSell(): Record<string, SellInfo> {
+  return load<Record<string, SellInfo>>(KEYS.sell, {})
+}
+export function saveSell(sell: Record<string, SellInfo>): void {
+  save(KEYS.sell, sell)
+}
+
+/** Bundle every piece of user data into one object (cloud payload / backup file). */
+export function bundle(): AppData {
+  return {
+    version: 2,
+    collection: loadCollection(),
+    history: loadHistory(),
+    sell: loadSell(),
+    updatedAt: new Date().toISOString(),
+  }
+}
+
+/** Write a bundle back to localStorage. Refuses to clobber a non-empty local
+ *  collection with an empty one — losing cards is the one unrecoverable failure. */
+export function restore(data: AppData, { allowEmpty = false } = {}): boolean {
+  const incoming = Array.isArray(data?.collection) ? data.collection : []
+  if (incoming.length === 0 && !allowEmpty && loadCollection().length > 0) return false
+  saveCollection(incoming)
+  saveHistory(Array.isArray(data?.history) ? data.history : [])
+  saveSell(data?.sell && typeof data.sell === 'object' ? data.sell : {})
+  return true
 }
