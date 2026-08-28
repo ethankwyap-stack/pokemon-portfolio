@@ -11,6 +11,7 @@ Backed up to github.com/ethankwyap-stack/pokemon-portfolio (private) — LaunchA
 - Dev server: `npm run dev` (but the user normally uses :4321).
 
 ## Serving — also live on Vercel (added 2026-08-28)
+- Public share copy (what other people are given): **https://ethankwyap-stack.github.io/pokemon-portfolio/** — the `gh-pages` branch. Rebuild it with `npm run build` then push `dist/` to `gh-pages` via a git worktree; it goes stale silently otherwise.
 - Live: **https://pokemon-portfolio-gold.vercel.app/?k=SECRET** (Vercel project `ethan16/pokemon-portfolio`, blob store `pokefolio-data`). Secret in `~/pokemon-portfolio/.app-secret`, also set as Vercel env `APP_SECRET` on all three environments.
 - Deploy: `vercel deploy --prod --yes`. localhost:4321 still works and is unaffected — with no `?k=` the app runs on localStorage exactly as before.
 - `api/collection.js` stores one JSON bundle (collection + history + sell) in Vercel Blob. Same secret-link pattern as house-inventory / coffee-shelf.
@@ -24,6 +25,12 @@ Backed up to github.com/ethankwyap-stack/pokemon-portfolio (private) — LaunchA
 - **`refreshPrices` skips `manual` entries entirely** — their price is user-owned. Never "fix" this by looking them up; the API has no record and the lookup would waste a request per card.
 - Edit via the "Edit details / price" link on the card tile; it reuses the same form and keeps the cardId stable so the sell flag and logged offers stay attached. A changed printing label triggers `applyRenames`.
 - Manual cards may have no photo — `CardTile`, `SellSheet`'s `Thumb`, and the offline sheet all render a dashed placeholder instead. Don't assume `imageSmall` is non-empty.
+
+## Share by link (added 2026-08-28)
+- Anyone using the public GitHub Pages copy can hit **Data → Share your collection** to get a link with their cards packed into the URL fragment (`#s=…`, gzip via `CompressionStream` + base64url, `src/lib/share.ts`). Nothing is uploaded and no backend is touched — the fragment never leaves the browser.
+- Opening a `#s=` link mounts `SharedView` **instead of** `App` (see `src/main.tsx`). That is deliberate: it is what guarantees a shared collection can never write to the viewer's own localStorage or cloud copy. Do not "simplify" it into a tab inside App.
+- The payload is lossy on purpose — no history, no sell flags, no offers, and `data:` photos on manual cards are stripped (they would add hundreds of KB per card). Rows are tuples, not objects, so field names don't dominate the bytes.
+- ~120 cards packs to a ~1.6 KB link. Past `LINK_WARN_CHARS` (8000) the UI warns that chat apps may cut the link and suggests the backup file instead.
 
 ## Data & API quirks
 - All data in localStorage under `poke.*` keys (collection, price history, sets cache, sell). Entries keyed by cardId+variant. localStorage stays a live mirror even when cloud sync is on.
