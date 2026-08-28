@@ -15,6 +15,28 @@ interface Props {
 
 const LANGUAGES = ['Japanese', 'English', 'Chinese', 'Korean', 'German', 'French', 'Other']
 
+/** Where to look a price up, in the order a seller should trust them.
+ *  eBay SOLD listings are first on purpose: they are what someone actually paid
+ *  in USD, which is the only number a US vendor will negotiate against. */
+const PRICE_SOURCES: { label: string; hint: string; url: (q: string) => string }[] = [
+  {
+    label: 'eBay sold',
+    hint: 'What people actually paid, in USD. Trust this most.',
+    url: (q) =>
+      `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(q)}&_sacat=183454&LH_Sold=1&LH_Complete=1&_sop=13`,
+  },
+  {
+    label: 'PriceCharting',
+    hint: 'Free price history, and it covers Japanese cards well.',
+    url: (q) => `https://www.pricecharting.com/search-products?q=${encodeURIComponent(q)}&type=prices`,
+  },
+  {
+    label: 'TCGplayer',
+    hint: 'The market price vendors quote. Thin on Japanese cards.',
+    url: (q) => `https://www.tcgplayer.com/search/all/product?q=${encodeURIComponent(q)}`,
+  },
+]
+
 /** Shrink a photo to a sane size and return a data: URI. Full-size phone photos
  *  are several MB, which would blow past the cloud payload limit fast. */
 function shrinkImage(file: File, maxPx = 500): Promise<string> {
@@ -135,6 +157,13 @@ export default function ManualAdd({ onAdd, editing = null, onCancelEdit }: Props
   const input =
     'w-full rounded-lg border border-border bg-surface-2 px-3 py-2 text-base text-ink outline-none focus:border-neon'
 
+  // Search text built from what's been typed so far. Language is deliberately
+  // left out: sites index these cards under their English names.
+  const lookupQuery = [name.trim(), cardSet.trim(), variant.trim(), number.trim()]
+    .filter(Boolean)
+    .join(' ')
+    .trim()
+
   return (
     <div className="flex flex-col gap-3">
       <p className="text-sm text-muted">
@@ -211,6 +240,9 @@ export default function ManualAdd({ onAdd, editing = null, onCancelEdit }: Props
             inputMode="decimal"
             placeholder="120"
           />
+          <span className="text-[11px] text-muted">
+            Price ONE copy, not the stack. Quantity is handled separately.
+          </span>
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-xs text-muted">Note</span>
@@ -221,6 +253,43 @@ export default function ManualAdd({ onAdd, editing = null, onCancelEdit }: Props
             placeholder="NM, from Akihabara"
           />
         </label>
+      </div>
+
+      {/* Price lookup. Opens a search already filled in from the fields above,
+          so the card never has to be typed twice. */}
+      <div className="rounded-xl border border-border bg-surface-2 p-3">
+        <p className="text-sm text-ink">Not sure what it's worth?</p>
+        <p className="mt-0.5 text-xs text-muted">
+          {lookupQuery
+            ? 'Opens a search for this card in a new tab. Use the SOLD price, not the asking price.'
+            : 'Type the card name above first, then these will search for it.'}
+        </p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {PRICE_SOURCES.map((src) => (
+            <a
+              key={src.label}
+              href={lookupQuery ? src.url(lookupQuery) : undefined}
+              target="_blank"
+              rel="noreferrer"
+              title={src.hint}
+              aria-disabled={!lookupQuery}
+              className={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${
+                lookupQuery
+                  ? 'border-neon/40 text-neon hover:border-neon hover:bg-neon/10'
+                  : 'pointer-events-none border-border text-muted opacity-40'
+              }`}
+            >
+              {src.label} ↗
+            </a>
+          ))}
+        </div>
+        {language === 'Japanese' && (
+          <p className="mt-2 text-xs text-muted">
+            Japanese card: search the English name (e.g. “Charizard ex SAR”). Price it at what it
+            sells for <strong className="text-ink">in the US</strong> — Japanese cards are cheaper in
+            Japan, and a US vendor pays the US number.
+          </p>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
