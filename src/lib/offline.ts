@@ -17,6 +17,10 @@ const esc = (s: string) =>
 
 /** Fetch an image and return a data: URI, or null if it can't be inlined. */
 async function inlineImage(url: string): Promise<string | null> {
+  if (!url) return null
+  // A hand-entered card's photo is already a data: URI — it is offline-ready and
+  // refetching it would only risk tripping the size cap.
+  if (url.startsWith('data:')) return url
   try {
     const res = await fetch(url, { mode: 'cors' })
     if (!res.ok) return null
@@ -64,10 +68,10 @@ export async function buildOfflineSheet(
           `<div class="step"><span class="lab">${s.label} ${Math.round(s.pct * 100)}%</span><b class="${s.tone}">${money(market * s.pct)}</b></div>`,
       ).join('')
       return `<article class="card">
-  <img src="${src}" alt="">
+  ${src ? `<img src="${src}" alt="">` : `<div class="nophoto">${esc(card.language ?? 'no photo')}</div>`}
   <div class="meta">
     <h2>${esc(card.name)}</h2>
-    <p class="sub">${esc(card.setName)} · #${esc(card.number)} · x${card.qty}</p>
+    <p class="sub">${esc(card.setName)}${card.number ? ` · #${esc(card.number)}` : ''} · x${card.qty}${card.language && card.language !== 'English' ? ` · ${esc(card.language)}` : ''}</p>
     <p class="mk">Market <b>${money(market)}</b></p>
     ${best ? `<p class="sub">Best offer logged: <b>${money(best.amount)}</b> (${esc(best.vendor)})</p>` : ''}
     <div class="ladder">${ladder}</div>
@@ -100,6 +104,8 @@ export async function buildOfflineSheet(
   .card{display:flex;gap:12px;border:1px solid var(--border);background:var(--surface);
     border-radius:16px;padding:12px;margin-bottom:12px}
   .card img{width:68px;height:auto;border-radius:8px;flex:0 0 auto;background:var(--surface2)}
+  .nophoto{width:68px;height:95px;flex:0 0 auto;border:1px dashed var(--border);border-radius:8px;
+    display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:10px;text-align:center;padding:2px}
   .meta{min-width:0;flex:1}
   h2{margin:0;font-size:16px}
   .sub{margin:2px 0;color:var(--muted);font-size:12px}

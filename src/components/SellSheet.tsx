@@ -207,6 +207,20 @@ export default function SellSheet({
   )
 }
 
+/** Card thumbnail that degrades to a label when a hand-entered card has no photo. */
+function Thumb({ card, className }: { card: OwnedCard; className: string }) {
+  if (card.imageSmall) {
+    return <img src={card.imageSmall} alt="" className={`${className} shrink-0 rounded-lg object-cover`} />
+  }
+  return (
+    <div
+      className={`${className} flex shrink-0 items-center justify-center rounded-lg border border-dashed border-border px-1 text-center text-[10px] leading-tight text-muted`}
+    >
+      {card.language ?? 'no photo'}
+    </div>
+  )
+}
+
 function PickRow({
   card,
   checked,
@@ -228,7 +242,7 @@ function PickRow({
         onChange={(e) => onToggleForSale(card, e.target.checked)}
         className="h-5 w-5 shrink-0 accent-[#00e0a4]"
       />
-      <img src={card.imageSmall} alt="" className="h-12 w-9 shrink-0 rounded" />
+      <Thumb card={card} className="h-12 w-9" />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm text-ink">{card.name}</span>
         <span className="block truncate text-xs text-muted">
@@ -275,7 +289,7 @@ function SellRow({
   return (
     <div className="rounded-2xl border border-border bg-surface p-3">
       <div className="flex gap-3">
-        <img src={card.imageSmall} alt="" className="h-24 w-[68px] shrink-0 rounded-lg" />
+        <Thumb card={card} className="h-24 w-[68px]" />
         <div className="min-w-0 flex-1">
           <p className="truncate text-base font-semibold text-ink">{card.name}</p>
           <p className="truncate text-xs text-muted">

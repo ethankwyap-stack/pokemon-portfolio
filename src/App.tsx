@@ -18,6 +18,7 @@ import { recordSnapshot, refreshPrices, toOwnedCard, totalValue } from './lib/po
 import { emptySell, entryKey, newOffer } from './lib/sell'
 import AddCardSearch from './components/AddCardSearch'
 import SetNumberAdd from './components/SetNumberAdd'
+import ManualAdd from './components/ManualAdd'
 import CardTile from './components/CardTile'
 import PortfolioSummary from './components/PortfolioSummary'
 import ValueChart from './components/ValueChart'
@@ -25,7 +26,7 @@ import SellSheet from './components/SellSheet'
 import DataPanel from './components/DataPanel'
 import { Button } from './components/ui'
 
-type AddMode = 'search' | 'setNumber'
+type AddMode = 'search' | 'setNumber' | 'manual'
 type SortMode = 'added' | 'value' | 'name'
 type Tab = 'portfolio' | 'sell' | 'data'
 
@@ -41,6 +42,7 @@ export default function App() {
   const [sell, setSell] = useState<Record<string, SellInfo>>(() => loadSell())
   const [tab, setTab] = useState<Tab>('portfolio')
   const [addMode, setAddMode] = useState<AddMode>('search')
+  const [editingManual, setEditingManual] = useState<OwnedCard | null>(null)
   const [sortMode, setSortMode] = useState<SortMode>('added')
   const [refreshing, setRefreshing] = useState(false)
   const [cloudStatus, setCloudStatus] = useState(
@@ -216,6 +218,24 @@ export default function App() {
       }
       return [...prev, entry]
     })
+  }
+
+  /** Add or update a hand-entered card. Editing keeps the same cardId+variant,
+   *  so the card's sell flag and logged offers stay attached. */
+  function upsertManual(card: OwnedCard) {
+    setCollection((prev) => {
+      const idx = prev.findIndex((c) => c.cardId === card.cardId)
+      if (idx === -1) return [...prev, card]
+      const prevEntry = prev[idx]
+      const next = [...prev]
+      next[idx] = card
+      // If the printing label changed, carry the sell state to the new key.
+      if (entryKey(prevEntry) !== entryKey(card)) {
+        setSell((s) => applyRenames(s, [[entryKey(prevEntry), entryKey(card)]]))
+      }
+      return next
+    })
+    setEditingManual(null)
   }
 
   function changeQty(cardId: string, variant: string, qty: number) {
@@ -405,11 +425,21 @@ export default function App() {
               >
                 Set + number
               </Button>
+              <Button
+                variant={addMode === 'manual' ? 'primary' : 'subtle'}
+                onClick={() => setAddMode('manual')}
+              >
+                Enter by hand
+              </Button>
             </div>
-            {addMode === 'search' ? (
-              <AddCardSearch onAdd={addCard} />
-            ) : (
-              <SetNumberAdd onAdd={addCard} />
+            {addMode === 'search' && <AddCardSearch onAdd={addCard} />}
+            {addMode === 'setNumber' && <SetNumberAdd onAdd={addCard} />}
+            {addMode === 'manual' && (
+              <ManualAdd
+                onAdd={upsertManual}
+                editing={editingManual}
+                onCancelEdit={() => setEditingManual(null)}
+              />
             )}
           </section>
 
@@ -444,6 +474,11 @@ export default function App() {
                     onQtyChange={changeQty}
                     onVariantChange={changeVariant}
                     onRemove={removeCard}
+                    onEditManual={(c) => {
+                      setEditingManual(c)
+                      setAddMode('manual')
+                      window.scrollTo({ top: 0, behavior: 'smooth' })
+                    }}
                   />
                 ))}
               </div>

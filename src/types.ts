@@ -71,6 +71,15 @@ export interface OwnedCard {
   priceMarket: number | null
   priceUpdatedAt?: string
   addedAt: string
+  /** True for a hand-entered card (Japanese cards, promos, anything the
+   *  pokemontcg.io API does not carry). Manual cards are skipped by the price
+   *  refresh — their price is whatever the user typed, and only the user
+   *  changes it. */
+  manual?: boolean
+  /** Free-text language for manual cards, e.g. "Japanese". */
+  language?: string
+  /** Free-text note for manual cards (condition, grading, where it came from). */
+  note?: string
 }
 
 /** One point on the value-over-time chart. */

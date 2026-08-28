@@ -19,6 +19,12 @@ Backed up to github.com/ethankwyap-stack/pokemon-portfolio (private) — LaunchA
 - **`package.json` has `"type": "module"`, so files under `api/` MUST be ESM** (`import` / `export default handler`). A CJS `require` there deploys fine and then fails at runtime with `ReferenceError: require is not defined` and a bare 500 — the browser shows nothing useful, only `vercel logs <deployment>` names the cause. house-inventory's CJS api file is NOT copy-pasteable here.
 - The blob store is **public**, so `collection.json` is written with `addRandomSuffix: true` and located via `list({ prefix })`. Do not switch to a fixed pathname — that would make the raw blob URL guessable.
 
+## Manual cards
+- "Enter by hand" add mode creates entries with `manual: true` and a `manual-<ts>-<rand>` cardId, for Japanese printings and anything pokemontcg.io does not carry. Fields: name, set, number, language, printing/finish, qty, hand-typed price, note, optional photo (shrunk to 500px, stored as a data URI in `imageSmall`/`imageLarge`).
+- **`refreshPrices` skips `manual` entries entirely** — their price is user-owned. Never "fix" this by looking them up; the API has no record and the lookup would waste a request per card.
+- Edit via the "Edit details / price" link on the card tile; it reuses the same form and keeps the cardId stable so the sell flag and logged offers stay attached. A changed printing label triggers `applyRenames`.
+- Manual cards may have no photo — `CardTile`, `SellSheet`'s `Thumb`, and the offline sheet all render a dashed placeholder instead. Don't assume `imageSmall` is non-empty.
+
 ## Data & API quirks
 - All data in localStorage under `poke.*` keys (collection, price history, sets cache, sell). Entries keyed by cardId+variant. localStorage stays a live mirror even when cloud sync is on.
 - Write guards worth keeping: the API refuses a PUT that would empty a non-empty stored collection (needs `?force=1`), keeps a dated `backups/YYYY-MM-DD.json` blob before each overwrite, and the client blocks cloud writes until the first cloud read settles so a fresh phone tab cannot push empty state over the real collection.

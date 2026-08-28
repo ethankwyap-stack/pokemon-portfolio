@@ -47,11 +47,14 @@ export async function refreshPrices(
   collection: OwnedCard[],
 ): Promise<{ collection: OwnedCard[]; renames: Array<[string, string]> }> {
   if (collection.length === 0) return { collection, renames: [] }
-  const ids = [...new Set(collection.map((c) => c.cardId))]
-  const fresh = await getCardsByIds(ids)
+  // Hand-entered cards have no API record; asking for them wastes a request and
+  // their price is user-owned anyway.
+  const ids = [...new Set(collection.filter((c) => !c.manual).map((c) => c.cardId))]
+  const fresh = ids.length > 0 ? await getCardsByIds(ids) : []
   const byId = new Map(fresh.map((c) => [c.id, c]))
   const renames: Array<[string, string]> = []
   const next = collection.map((owned) => {
+    if (owned.manual) return owned
     const card = byId.get(owned.cardId)
     if (!card) return owned
     const variants = variantOptions(card)
