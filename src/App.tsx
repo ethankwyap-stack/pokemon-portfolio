@@ -506,6 +506,7 @@ export default function App() {
           bundle={bundle}
           onRestore={applyRestore}
           onDownloadOffline={downloadOffline}
+          collection={collection}
         />
       )}
     </div>
