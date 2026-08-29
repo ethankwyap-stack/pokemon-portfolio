@@ -42,11 +42,16 @@ function mergeSell(
     // Union the offers by id, newest-logged first when amounts tie.
     const byId = new Map((b.offers ?? []).map((o) => [o.id, o]))
     for (const o of a.offers ?? []) byId.set(o.id, o)
+    // A recorded sale is the strongest signal either side holds: it means cash
+    // changed hands. Keep it, and on the rare double-record keep the later one.
+    const sale =
+      a.sale && b.sale ? (a.sale.at >= b.sale.at ? a.sale : b.sale) : (a.sale ?? b.sale ?? null)
     out[k] = {
       // Flagged on either device wins — this is the "don't unselect me" rule.
       forSale: Boolean(a.forSale || b.forSale),
       askPrice: a.askPrice ?? b.askPrice ?? null,
       offers: [...byId.values()].sort((x, y) => x.at.localeCompare(y.at)),
+      sale,
     }
   }
   return out

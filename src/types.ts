@@ -100,6 +100,23 @@ export interface Offer {
   at: string // ISO timestamp
 }
 
+/** A completed sale. Recorded from the Sell tab the moment cash changes hands,
+ *  so the Sold tab can answer "how did I actually do today?" without relying on
+ *  memory at the end of a long show. */
+export interface Sale {
+  /** Table / vendor the card went to, free text. */
+  vendor: string
+  /** Cash actually received, in dollars, for `qty` copies. */
+  amount: number
+  /** How many copies went. Defaults to the whole entry. */
+  qty: number
+  /** Market value at the moment of sale, so the % is stable even if the API
+   *  price moves afterwards. */
+  marketAtSale: number
+  note?: string
+  at: string // ISO timestamp
+}
+
 /** Everything the Sell tab tracks for one owned entry. Kept in a side map keyed
  *  by `cardId|variant` rather than on OwnedCard, so a collection restored from
  *  an older backup still loads cleanly. */
@@ -108,6 +125,9 @@ export interface SellInfo {
   /** Optional manual floor; when unset the ladder percentages are used. */
   askPrice?: number | null
   offers: Offer[]
+  /** Set once the card is actually sold. A sold entry drops out of the
+   *  for-sale pile and shows up on the Sold tab instead. */
+  sale?: Sale | null
 }
 
 /** The whole persisted app state — one object, one cloud file, one backup file. */

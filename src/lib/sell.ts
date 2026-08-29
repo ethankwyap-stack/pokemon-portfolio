@@ -4,7 +4,7 @@
 // shows: ~70% of TCGplayer market is a strong cash offer, ~60% is normal, and
 // below ~50% is a lowball worth walking away from.
 
-import type { OwnedCard, Offer, SellInfo } from '../types'
+import type { OwnedCard, Offer, Sale, SellInfo } from '../types'
 
 export const LADDER = [
   { pct: 0.7, label: 'Great', tone: 'good' as const },
@@ -56,14 +56,70 @@ export function newOffer(vendor: string, amount: number, note?: string): Offer {
   }
 }
 
-/** Cards flagged for sale, highest market value first. */
+/** True once cash has changed hands for this entry. */
+export function isSold(info: SellInfo): boolean {
+  return Boolean(info.sale)
+}
+
+/** Cards flagged for sale and NOT yet sold, highest market value first.
+ *  Sold cards leave the pile so the running totals stop counting money you
+ *  have already collected. */
 export function forSaleCards(
   collection: OwnedCard[],
   sell: Record<string, SellInfo>,
 ): OwnedCard[] {
   return collection
-    .filter((c) => sellFor(sell, c).forSale)
+    .filter((c) => {
+      const info = sellFor(sell, c)
+      return info.forSale && !isSold(info)
+    })
     .sort((a, b) => lineMarket(b) - lineMarket(a))
+}
+
+/** Build a Sale record. `marketAtSale` is frozen here on purpose: the daily
+ *  price refresh would otherwise rewrite history and change what percentage you
+ *  "got" for a card weeks after the fact. */
+export function newSale(
+  vendor: string,
+  amount: number,
+  qty: number,
+  marketAtSale: number,
+  note?: string,
+): Sale {
+  return {
+    vendor: vendor.trim() || 'Unnamed table',
+    amount,
+    qty: Math.max(1, Math.round(qty) || 1),
+    marketAtSale,
+    note: note?.trim() || undefined,
+    at: new Date().toISOString(),
+  }
+}
+
+/** Every sold entry, newest sale first, paired with its Sale record. */
+export function soldEntries(
+  collection: OwnedCard[],
+  sell: Record<string, SellInfo>,
+): Array<{ card: OwnedCard; sale: Sale }> {
+  const out: Array<{ card: OwnedCard; sale: Sale }> = []
+  for (const card of collection) {
+    const sale = sellFor(sell, card).sale
+    if (sale) out.push({ card, sale })
+  }
+  return out.sort((a, b) => b.sale.at.localeCompare(a.sale.at))
+}
+
+/** How the day actually went: cash in, what it was worth, and the blended
+ *  percentage of market you achieved. */
+export function soldTotals(entries: Array<{ sale: Sale }>) {
+  const cash = entries.reduce((sum, e) => sum + e.sale.amount, 0)
+  const market = entries.reduce((sum, e) => sum + e.sale.marketAtSale, 0)
+  return {
+    cash,
+    market,
+    count: entries.length,
+    pct: market > 0 ? cash / market : null,
+  }
 }
 
 /** Totals across the for-sale pile at each ladder step. */

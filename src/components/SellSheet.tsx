@@ -4,7 +4,7 @@
 // offered, so offers can be compared before committing to one table.
 
 import { useMemo, useState } from 'react'
-import type { OwnedCard, SellInfo } from '../types'
+import type { Offer, OwnedCard, SellInfo } from '../types'
 import { usd } from '../lib/format'
 import {
   bestOffer,
@@ -25,6 +25,7 @@ interface Props {
   onToggleForSale: (card: OwnedCard, forSale: boolean) => void
   onAddOffer: (card: OwnedCard, vendor: string, amount: number, note?: string) => void
   onRemoveOffer: (card: OwnedCard, offerId: string) => void
+  onMarkSold: (card: OwnedCard, vendor: string, amount: number, qty: number, note?: string) => void
 }
 
 /** Filter by card name, set name, or collector number. */
@@ -53,6 +54,7 @@ export default function SellSheet({
   onToggleForSale,
   onAddOffer,
   onRemoveOffer,
+  onMarkSold,
 }: Props) {
   const [picking, setPicking] = useState(false)
   const [query, setQuery] = useState('')
@@ -199,6 +201,7 @@ export default function SellSheet({
               onToggleForSale={onToggleForSale}
               onAddOffer={onAddOffer}
               onRemoveOffer={onRemoveOffer}
+              onMarkSold={onMarkSold}
             />
           ))}
         </div>
@@ -262,16 +265,19 @@ function SellRow({
   onToggleForSale,
   onAddOffer,
   onRemoveOffer,
+  onMarkSold,
 }: {
   card: OwnedCard
   info: SellInfo
   onToggleForSale: Props['onToggleForSale']
   onAddOffer: Props['onAddOffer']
   onRemoveOffer: Props['onRemoveOffer']
+  onMarkSold: Props['onMarkSold']
 }) {
   const [open, setOpen] = useState(false)
   const [vendor, setVendor] = useState('')
   const [amount, setAmount] = useState('')
+  const [selling, setSelling] = useState(false)
 
   const market = lineMarket(card)
   const ladder = ladderFor(card)
@@ -332,6 +338,12 @@ function SellRow({
           {open ? 'Hide offers' : `Offers (${info.offers.length})`}
         </Button>
         <Button
+          variant={selling ? 'primary' : 'ghost'}
+          onClick={() => setSelling((v) => !v)}
+        >
+          {selling ? 'Cancel' : 'Sold'}
+        </Button>
+        <Button
           variant="danger"
           onClick={() => {
             // Offers are typed in by hand at a table; never drop them on one tap.
@@ -351,6 +363,16 @@ function SellRow({
           Not selling
         </Button>
       </div>
+
+      {selling && (
+        <SoldForm
+          card={card}
+          market={market}
+          best={best}
+          onMarkSold={onMarkSold}
+          onDone={() => setSelling(false)}
+        />
+      )}
 
       {open && (
         <div className="mt-3 border-t border-border pt-3">
@@ -404,6 +426,110 @@ function SellRow({
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+/** The "cash just changed hands" form. Prefilled from the best logged offer,
+ *  because the overwhelmingly common case is accepting an offer you already
+ *  wrote down while standing at the table. */
+function SoldForm({
+  card,
+  market,
+  best,
+  onMarkSold,
+  onDone,
+}: {
+  card: OwnedCard
+  market: number
+  best: Offer | null
+  onMarkSold: Props['onMarkSold']
+  onDone: () => void
+}) {
+  const [vendor, setVendor] = useState(best?.vendor ?? '')
+  const [amount, setAmount] = useState(best ? String(best.amount) : '')
+  const [qty, setQty] = useState(String(card.qty))
+  const [note, setNote] = useState('')
+
+  const paid = Number.parseFloat(amount)
+  const valid = Number.isFinite(paid) && paid > 0
+  const rating = valid ? rateOffer(paid, market) : null
+
+  const input =
+    'min-w-0 rounded-lg border border-border bg-surface-2 px-3 py-2 text-base text-ink outline-none focus:border-neon'
+
+  function confirmSale() {
+    if (!valid) return
+    const n = Math.max(1, Math.min(card.qty, Math.round(Number.parseFloat(qty)) || 1))
+    onMarkSold(card, vendor, paid, n, note)
+    onDone()
+  }
+
+  return (
+    <div className="mt-3 rounded-xl border border-neon/40 bg-neon/5 p-3">
+      <p className="text-sm font-semibold text-ink">Record the sale</p>
+      <p className="mt-0.5 text-xs text-muted">
+        Enter the cash you were actually handed, for all copies together.
+      </p>
+
+      <div className="mt-2 flex gap-2">
+        <input
+          value={vendor}
+          onChange={(e) => setVendor(e.target.value)}
+          placeholder="Table / vendor"
+          className={`${input} flex-1`}
+        />
+        <input
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && confirmSale()}
+          inputMode="decimal"
+          placeholder="$ paid"
+          className={`${input} w-28 shrink-0`}
+        />
+      </div>
+
+      <div className="mt-2 flex gap-2">
+        {card.qty > 1 && (
+          <label className="flex shrink-0 items-center gap-2 text-xs text-muted">
+            Copies
+            <input
+              value={qty}
+              onChange={(e) => setQty(e.target.value)}
+              inputMode="numeric"
+              className={`${input} w-16`}
+            />
+          </label>
+        )}
+        <input
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="Note (optional)"
+          className={`${input} flex-1`}
+        />
+      </div>
+
+      {rating && (
+        <p className="mt-2 text-sm">
+          That is{' '}
+          <span className={`font-bold tabular-nums ${toneText[rating.tone]}`}>
+            {rating.pct != null ? `${Math.round(rating.pct * 100)}%` : '—'} of market
+          </span>{' '}
+          <span className={toneText[rating.tone]}>({rating.label})</span>
+          {rating.tone === 'bad' && (
+            <span className="text-muted"> — that is a lowball. Sure?</span>
+          )}
+        </p>
+      )}
+
+      <div className="mt-3 flex gap-2">
+        <Button className="flex-1" disabled={!valid} onClick={confirmSale}>
+          Confirm sale
+        </Button>
+        <Button variant="subtle" onClick={onDone}>
+          Cancel
+        </Button>
+      </div>
     </div>
   )
 }

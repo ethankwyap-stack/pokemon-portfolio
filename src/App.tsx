@@ -15,7 +15,7 @@ import { ConflictError, cloudEnabled, cloudLoad, cloudSave } from './lib/cloud'
 import { applyRenames, mergeData } from './lib/merge'
 import { buildOfflineSheet, downloadFile } from './lib/offline'
 import { recordSnapshot, refreshPrices, toOwnedCard, totalValue } from './lib/portfolio'
-import { emptySell, entryKey, newOffer } from './lib/sell'
+import { emptySell, entryKey, lineMarket, newOffer, newSale } from './lib/sell'
 import AddCardSearch from './components/AddCardSearch'
 import SetNumberAdd from './components/SetNumberAdd'
 import ManualAdd from './components/ManualAdd'
@@ -23,16 +23,18 @@ import CardTile from './components/CardTile'
 import PortfolioSummary from './components/PortfolioSummary'
 import ValueChart from './components/ValueChart'
 import SellSheet from './components/SellSheet'
+import SoldSheet from './components/SoldSheet'
 import DataPanel from './components/DataPanel'
 import { Button } from './components/ui'
 
 type AddMode = 'search' | 'setNumber' | 'manual'
 type SortMode = 'added' | 'value' | 'name'
-type Tab = 'portfolio' | 'sell' | 'data'
+type Tab = 'portfolio' | 'sell' | 'sold' | 'data'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'portfolio', label: 'Portfolio' },
   { id: 'sell', label: 'Sell' },
+  { id: 'sold', label: 'Sold' },
   { id: 'data', label: 'Data' },
 ]
 
@@ -323,6 +325,33 @@ export default function App() {
     })
   }, [])
 
+  /** Cash changed hands. The market value is frozen into the record here so the
+   *  nightly price refresh can never rewrite what percentage you got. */
+  const markSold = useCallback(
+    (card: OwnedCard, vendor: string, amount: number, qty: number, note?: string) => {
+      setSell((prev) => {
+        const k = entryKey(card)
+        const cur = prev[k] ?? emptySell()
+        const share = card.qty > 0 ? Math.min(qty, card.qty) / card.qty : 1
+        return {
+          ...prev,
+          [k]: { ...cur, sale: newSale(vendor, amount, qty, lineMarket(card) * share, note) },
+        }
+      })
+    },
+    [],
+  )
+
+  /** Undo a sale — the card goes straight back onto the sell list. */
+  const unmarkSold = useCallback((card: OwnedCard) => {
+    setSell((prev) => {
+      const k = entryKey(card)
+      const cur = prev[k]
+      if (!cur) return prev
+      return { ...prev, [k]: { ...cur, sale: null, forSale: true } }
+    })
+  }, [])
+
   /** Deliberate "make the cloud match this device" — overrides both guards, but
    *  asks first when that would clear a stored collection. */
   async function pushToCloud() {
@@ -494,7 +523,12 @@ export default function App() {
           onToggleForSale={toggleForSale}
           onAddOffer={addOffer}
           onRemoveOffer={removeOffer}
+          onMarkSold={markSold}
         />
+      )}
+
+      {tab === 'sold' && (
+        <SoldSheet collection={collection} sell={sell} onUnsell={unmarkSold} />
       )}
 
       {tab === 'data' && (

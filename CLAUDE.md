@@ -32,6 +32,13 @@ Backed up to github.com/ethankwyap-stack/pokemon-portfolio (private) — LaunchA
 - The payload is lossy on purpose — no history, no sell flags, no offers, and `data:` photos on manual cards are stripped (they would add hundreds of KB per card). Rows are tuples, not objects, so field names don't dominate the bytes.
 - ~120 cards packs to a ~1.6 KB link. Past `LINK_WARN_CHARS` (8000) the UI warns that chat apps may cut the link and suggests the backup file instead.
 
+## Sold tab (added 2026-08-28)
+- Fourth tab. A completed sale lives at `sell[key].sale` (`Sale` in types.ts): vendor, cash amount, qty, `marketAtSale`, note, timestamp.
+- **`marketAtSale` is frozen at sale time on purpose.** The nightly price refresh would otherwise rewrite history and silently change what % of market a past sale "got". Never recompute it from `priceMarket`.
+- `forSaleCards()` excludes sold entries, so a sold card drops out of the Sell pile, its running totals, and the offline sheet automatically.
+- Sold cards stay in the collection (nothing vanishes by accident). "Undo" clears `sale` and sets `forSale: true`.
+- Merge rule in merge.ts: a `sale` on either device wins; a double-record keeps the later `at`. Cash changing hands is the strongest signal in the data.
+
 ## Data & API quirks
 - All data in localStorage under `poke.*` keys (collection, price history, sets cache, sell). Entries keyed by cardId+variant. localStorage stays a live mirror even when cloud sync is on.
 - Write guards worth keeping: the API refuses a PUT that would empty a non-empty stored collection (needs `?force=1`), keeps a dated `backups/YYYY-MM-DD.json` blob before each overwrite, and the client blocks cloud writes until the first cloud read settles so a fresh phone tab cannot push empty state over the real collection.
