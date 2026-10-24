@@ -43,6 +43,6 @@ createServer(async (req, res) => {
     res.writeHead(500, { 'Content-Type': 'text/plain' })
     res.end(`Server error: ${err.message}\nHave you run "npm run build" yet?`)
   }
-}).listen(PORT, () => {
+}).listen(PORT, '127.0.0.1', () => {
   console.log(`PokéFolio serving dist/ at http://localhost:${PORT}`)
 })
