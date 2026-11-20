@@ -3,7 +3,16 @@
 Track the Pokémon cards you own and their **TCGplayer market prices**, rolled up
 into a portfolio with a value-over-time chart. Prices come from the free
 [pokemontcg.io](https://pokemontcg.io) API (which embeds TCGplayer pricing);
-every card links out to its TCGplayer page.
+cards found through the API link out to their TCGplayer page.
+
+**Tech:** React + TypeScript + Vite, no chart library · pokemontcg.io API · a tiny
+dependency-free Node server kept alive by a macOS LaunchAgent · optional Vercel
+function + Vercel Blob for syncing the collection.
+
+**How I built it:** I collect Pokémon cards and wanted one number: what my collection
+is worth today, and how that changes over time. I designed it and built it with
+[Claude Code](https://claude.com/claude-code) as my pair programmer. It runs on my own
+Mac, so there is no live demo.
 
 ## Everyday use
 
@@ -34,6 +43,7 @@ them up.
 
 ```sh
 npm run build
+# edit the paths inside the plist to match your Mac first
 cp com.ethanyap.pokemon-portfolio.plist ~/Library/LaunchAgents/
 launchctl load -w ~/Library/LaunchAgents/com.ethanyap.pokemon-portfolio.plist
 ```
